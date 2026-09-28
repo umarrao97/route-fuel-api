@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from urllib.parse import urlencode
-
 from django.shortcuts import render
-from django.urls import reverse
 from django.views.decorators.http import require_GET
 from rest_framework import status
 from rest_framework.response import Response
@@ -32,20 +28,7 @@ def index(request):
     return render(request, "trips/index.html")
 
 
-def _endpoint_to_query(ep) -> str:
-    if isinstance(ep, dict):
-        return f"{ep['lat']},{ep['lng']}"
-    return str(ep)
-
-
-def _build_map_url(request, start, finish, buffer_miles) -> str:
-    params = {"start": _endpoint_to_query(start), "finish": _endpoint_to_query(finish)}
-    if buffer_miles is not None:
-        params["buffer_miles"] = buffer_miles
-    return request.build_absolute_uri(reverse("trips:plan-map") + "?" + urlencode(params))
-
-
-def _run_plan(request, start, finish, buffer_miles):
+def _run_plan(start, finish, buffer_miles, include_geometry):
     """Shared planning + exception mapping. Returns (data, status_code)."""
     try:
         result = plan_trip(start, finish, buffer_miles)
@@ -63,12 +46,17 @@ def _run_plan(request, start, finish, buffer_miles):
     except RouteProviderError as exc:
         return {"error": f"Routing provider error: {exc}"}, status.HTTP_502_BAD_GATEWAY
 
-    result["route"]["map_url"] = _build_map_url(request, start, finish, buffer_miles)
-    return result, status.HTTP_200_OK
+    # Keep the cached geometry intact for map rendering and later opt-in requests.
+    route = {
+        key: value
+        for key, value in result["route"].items()
+        if include_geometry or key != "geometry"
+    }
+    return {**result, "route": route}, status.HTTP_200_OK
 
 
 class RouteFuelPlanView(APIView):
-    """POST JSON {start, finish, buffer_miles?} or GET ?start=&finish=&buffer_miles=.
+    """POST JSON or GET query parameters: start, finish, buffer_miles?, include_geometry?.
 
     Both verbs validate through the same serializer, so a malformed buffer or a
     missing endpoint is always a 400 (never a 500)."""
@@ -77,7 +65,9 @@ class RouteFuelPlanView(APIView):
         serializer = RouteFuelPlanRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        result, code = _run_plan(request, data["start"], data["finish"], data.get("buffer_miles"))
+        result, code = _run_plan(
+            data["start"], data["finish"], data.get("buffer_miles"), data["include_geometry"]
+        )
         return Response(result, status=code)
 
     def get(self, request):
@@ -88,10 +78,14 @@ class RouteFuelPlanView(APIView):
         buffer_miles = request.query_params.get("buffer_miles")
         if buffer_miles:
             raw["buffer_miles"] = buffer_miles
+        if "include_geometry" in request.query_params:
+            raw["include_geometry"] = request.query_params["include_geometry"]
         serializer = RouteFuelPlanRequestSerializer(data=raw)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        result, code = _run_plan(request, data["start"], data["finish"], data.get("buffer_miles"))
+        result, code = _run_plan(
+            data["start"], data["finish"], data.get("buffer_miles"), data["include_geometry"]
+        )
         return Response(result, status=code)
 
 
@@ -127,13 +121,11 @@ def plan_map(request):
         return _map_error(request, str(exc), 422)
 
     context = {
-        "geometry_json": json.dumps(result["route"]["geometry"]),
-        "stops_json": json.dumps(result["fuel_stops"]),
-        "summary_json": json.dumps(
-            {
-                "route": {k: v for k, v in result["route"].items() if k != "geometry"},
-                "fuel": result["fuel"],
-            }
-        ),
+        "geometry": result["route"]["geometry"],
+        "stops": result["fuel_stops"],
+        "summary": {
+            "route": {k: v for k, v in result["route"].items() if k != "geometry"},
+            "fuel": result["fuel"],
+        },
     }
     return render(request, "trips/map.html", context)

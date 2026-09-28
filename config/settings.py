@@ -47,6 +47,7 @@ env = environ.Env(
     # --- Data files ---
     FUEL_CSV_PATH=(str, str(DATA_DIR / "fuel-prices-for-be-assessment.csv")),
     US_CITIES_CSV_PATH=(str, str(DATA_DIR / "uscities.csv")),
+    US_BOUNDARY_PATH=(str, str(DATA_DIR / "us_boundary.json")),
 )
 
 # Load .env if present (optional).
@@ -219,3 +220,4 @@ CORRIDOR_BUFFER_MILES = env("CORRIDOR_BUFFER_MILES")
 
 FUEL_CSV_PATH = env("FUEL_CSV_PATH")
 US_CITIES_CSV_PATH = env("US_CITIES_CSV_PATH")
+US_BOUNDARY_PATH = env("US_BOUNDARY_PATH")

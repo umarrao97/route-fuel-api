@@ -25,9 +25,9 @@
   <div id="map"></div>
   <div class="panel" id="panel"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  {{ geometry_json|json_script:"geometry-data" }}
-  {{ stops_json|json_script:"stops-data" }}
-  {{ summary_json|json_script:"summary-data" }}
+  {{ geometry|json_script:"geometry-data" }}
+  {{ stops|json_script:"stops-data" }}
+  {{ summary|json_script:"summary-data" }}
   <script>
     const geometry = JSON.parse(document.getElementById("geometry-data").textContent);
     const stops = JSON.parse(document.getElementById("stops-data").textContent);

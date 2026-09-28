@@ -114,7 +114,6 @@ def _serialize(route, plan: FuelPlan) -> dict:
             "provider": route.provider,
             "start": start,
             "finish": finish,
-            # map_url is attached by the view (needs the request to build it).
         },
         "fuel": {
             "mpg": plan.mpg,

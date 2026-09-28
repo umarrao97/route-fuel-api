@@ -30,6 +30,7 @@ class RouteFuelPlanRequestSerializer(serializers.Serializer):
     start = EndpointField()
     finish = EndpointField()
     buffer_miles = serializers.FloatField(required=False, min_value=0.5, max_value=50.0)
+    include_geometry = serializers.BooleanField(required=False, default=False)
 
 
 def parse_query_endpoint(text: str):

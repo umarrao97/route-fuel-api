@@ -217,7 +217,7 @@
         const resp = await fetch('/api/v1/route-fuel-plan/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ start: parseEndpoint(start), finish: parseEndpoint(finish) })
+          body: JSON.stringify({ start: parseEndpoint(start), finish: parseEndpoint(finish), include_geometry: true })
         });
         const data = await resp.json();
         if (resp.ok) {

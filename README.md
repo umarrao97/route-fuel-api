@@ -6,7 +6,10 @@ truck-stop prices from `fuel-prices-for-be-assessment.csv`. Calculations assume
 a vehicle with a **500-mile range** and fuel economy of **10 mpg**.
 
 It makes **exactly one** call to a free routing API per request (cached
-thereafter), and returns results in **milliseconds** once warm.
+thereafter). A cold cross-country request takes **~1.2 s**, nearly all of it
+waiting on the routing provider; a repeat is **~20 ms**.
+
+Built on **Django 6.1** (latest stable) and Python 3.14.
 
 ---
 
@@ -37,8 +40,13 @@ curl -s -X POST localhost:8000/api/v1/route-fuel-plan/ \
 curl -s 'localhost:8000/api/v1/route-fuel-plan/?start=Chicago,%20IL&finish=Houston,%20TX'
 ```
 
-Open `route.map_url` from the response to view the route and selected fuel stops
-on an interactive **Leaflet map**.
+The default JSON response contains a compact route summary, fuel totals, and
+selected stops. Add `"include_geometry": true` to the POST body, or
+`include_geometry=true` to the GET query, to include the full route coordinates.
+
+View the route and selected fuel stops through the separate **Leaflet map**
+endpoint:
+<http://localhost:8000/api/v1/route-fuel-plan/map/?start=Chicago%2C%20IL&finish=Houston%2C%20TX>.
 
 ### Run the tests
 
@@ -64,10 +72,12 @@ when planning routes:
 2. **Per request** — make **one** routing call (OpenRouteService or OSRM) for the
    route geometry + distance. Endpoints given as `"City, ST"` are resolved
    offline, so the typical request is a single API call.
-3. **Corridor** — a scipy KD-tree (built once from the table) prefilters stations
-   near the route; exact membership uses true perpendicular (haversine) distance
-   to the route polyline, and each station gets a "mile marker" distance from the
-   start.
+3. **Corridor** — all ~6.6k stations are projected onto the route polyline in one
+   vectorised pass (`trips/geo.py::RouteProjector`). A per-request scipy KD-tree
+   over the route vertices means each station is tested against only the few
+   hundred segments that actually run near it, not all ~35k — which is what keeps
+   this step at **~30-60 ms** instead of ~6 s. Membership uses true perpendicular
+   distance, and each station gets a "mile marker" distance from the start.
 4. **Optimize** — the classic minimum-cost **gas-station problem** is solved with
    a provably-optimal greedy (verified against a linear program in the tests):
    at each stop, buy just enough to reach the next cheaper station within range,
@@ -78,13 +88,11 @@ when planning routes:
 ```json
 {
   "route": {
-    "geometry": { "type": "LineString", "coordinates": [[lng, lat], ...] },
     "total_distance_miles": 1100.0,
     "duration_minutes": 1198.0,
     "provider": "osrm",
     "start": {"lat": 41.88, "lng": -87.63},
-    "finish": {"lat": 29.76, "lng": -95.37},
-    "map_url": "http://localhost:8000/api/v1/route-fuel-plan/map/?start=..."
+    "finish": {"lat": 29.76, "lng": -95.37}
   },
   "fuel": {
     "mpg": 10.0, "tank_range_miles": 500.0, "start_tank_assumption": "empty",
@@ -100,6 +108,11 @@ when planning routes:
   ]
 }
 ```
+
+Full road geometry can contain thousands of coordinate pairs. It remains
+available internally for station selection and map rendering; the compact API
+response omits it unless `include_geometry` is enabled. Neither response mode
+adds a map URL.
 
 ### Status codes
 
@@ -161,22 +174,48 @@ when planning routes:
 - **Conflicting duplicate prices** (597 OPIS IDs) are resolved by keeping the
   lowest price.
 - **Detour fuel** (driving off-highway to a station) is not counted.
-- **"Within USA" check** uses a bounding box; a rectangle cannot perfectly
-  separate border cities (e.g. Toronto vs. Buffalo). Place-name endpoints are
-  inherently constrained to US cities by the offline geocoder.
+- **"Within USA" check** is a point-in-polygon test against a vendored US land
+  outline (`data/us_boundary.json`, Natural Earth 1:110m, 447 vertices), backed
+  by a nearest-US-city rescue for the small islands and coastal cities that a
+  1:110m outline clips (Key West, Nantucket, Galveston, Barrow). See
+  `stations/territory.py`. Toronto, Montreal, Vancouver, Winnipeg, Monterrey and
+  ocean coordinates are all rejected; every US reference point in
+  `tests/test_territory.py` is accepted.
+  *Remaining limit:* twin border cities within a few miles of a US counterpart —
+  Windsor/Detroit, Tijuana/San Diego, Ciudad Juárez/El Paso, Niagara Falls ON —
+  still pass, because no coordinate-only test can separate cities two miles
+  apart. Place-name endpoints are inherently constrained to US cities by the
+  offline geocoder, so this affects raw coordinate input only.
 
 ## Project layout
 
 ```
 config/    Django project (settings, urls)
-stations/  FuelStation model, offline geocoder, load_fuel_prices command
+stations/  FuelStation model, offline geocoder, USA containment, load_fuel_prices
 routing/   provider abstraction (ORS/OSRM) + single-call client
-trips/     geo math, KD-tree index, corridor, optimizer, API views, Leaflet map
-tests/     optimizer (incl. greedy==LP fuzz), loader, corridor, routing, e2e, error contract
-data/      the fuel CSV + vendored uscities.csv
+trips/     geo math, station store, corridor, optimizer, API views, Leaflet map
+tests/     optimizer (incl. greedy==LP fuzz), projection, territory, loader,
+           corridor, routing, e2e, error contract
+data/      the fuel CSV + vendored uscities.csv + us_boundary.json
 ```
+
+## Performance
+
+Measured end-to-end against the live OSRM server (cold, i.e. nothing cached):
+
+| Route | Distance | Stops | Cold | Warm |
+|---|---|---|---|---|
+| Chicago, IL → Houston, TX | 1103 mi | 10 | 0.80 s | 0.01 s |
+| Bangor, ME → Key West, FL | 1878 mi | 17 | 1.12 s | 0.01 s |
+| New York, NY → Los Angeles, CA | 2801 mi | 21 | 1.24 s | 0.02 s |
+| Seattle, WA → Miami, FL | 3301 mi | 21 | 1.42 s | 0.02 s |
+
+Roughly 1 s of each cold request is the routing provider; corridor selection is
+~30-60 ms and the optimizer is well under a millisecond. Warm requests make **no**
+provider call at all.
 
 ## Data attribution
 
 City coordinates: [kelvins/US-Cities-Database](https://github.com/kelvins/US-Cities-Database) (MIT).
+US land outline: [Natural Earth](https://www.naturalearthdata.com/) 1:110m Admin 0 (public domain).
 Routing/tiles: OpenRouteService / OSRM / OpenStreetMap contributors.

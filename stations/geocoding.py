@@ -13,12 +13,17 @@ which is what keeps a typical request to a single routing API call.
 from __future__ import annotations
 
 import csv
+import math
 import re
 import threading
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 from django.conf import settings
+from scipy.spatial import cKDTree
+
+from trips.geo import EARTH_RADIUS_MILES, unit_xyz
 
 # Common abbreviation expansions so "St."/"Ft."/"Mt." match the dataset spelling.
 _ABBREV = [
@@ -43,6 +48,7 @@ class CityGeocoder:
         self.csv_path = Path(csv_path or settings.US_CITIES_CSV_PATH)
         self._index: dict[tuple[str, str], tuple[float, float]] = {}
         self._loaded = False
+        self._tree: cKDTree | None = None
         self._lock = threading.Lock()
 
     def _load(self) -> None:
@@ -76,6 +82,27 @@ class CityGeocoder:
             return None
         city, _, state = text.rpartition(",")
         return self.geocode(city, state)
+
+    def _centroid_tree(self) -> cKDTree:
+        """KD-tree over every known US city centroid, built lazily once.
+
+        Reuses the dataset this class has already parsed rather than reading the
+        CSV a second time. Used by stations.territory to decide whether a
+        coordinate is close enough to a real US city to count as inside the USA.
+        """
+        self._load()
+        if self._tree is None:
+            with self._lock:
+                if self._tree is None:
+                    coords = np.array(list(self._index.values()), dtype=float)
+                    self._tree = cKDTree(unit_xyz(coords[:, 0], coords[:, 1]))
+        return self._tree
+
+    def miles_to_nearest_city(self, lat: float, lng: float) -> float:
+        """Great-circle distance to the nearest US city centroid, in miles."""
+        chord, _ = self._centroid_tree().query(unit_xyz([lat], [lng]))
+        # Invert the chord length back to a surface distance.
+        return 2.0 * EARTH_RADIUS_MILES * math.asin(min(1.0, float(chord[0]) / 2.0))
 
 
 @lru_cache(maxsize=1)

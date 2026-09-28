@@ -58,8 +58,10 @@ US_STATES = frozenset(
     }
 )
 
-# Generous bounding box covering the contiguous US, Alaska, and Hawaii. Used to
-# validate that resolved route endpoints fall within the USA.
+# Generous bounding box covering the contiguous US, Alaska, and Hawaii. This is
+# only the cheap FIRST pass of the USA test -- a rectangle this size also covers
+# most of Canada and much of Mexico, so passing it means "not obviously
+# elsewhere", not "in the USA". The real test is stations.territory.in_usa.
 US_BBOX = {
     "min_lat": 18.0,  # south of Hawaii
     "max_lat": 72.0,  # northern Alaska
@@ -68,7 +70,8 @@ US_BBOX = {
 }
 
 
-def in_usa(lat: float, lng: float) -> bool:
+def in_us_bbox(lat: float, lng: float) -> bool:
+    """Cheap rejection test. See stations.territory.in_usa for the real one."""
     return (
         US_BBOX["min_lat"] <= lat <= US_BBOX["max_lat"]
         and US_BBOX["min_lng"] <= lng <= US_BBOX["max_lng"]

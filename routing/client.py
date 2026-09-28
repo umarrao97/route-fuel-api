@@ -14,8 +14,8 @@ from dataclasses import dataclass
 
 from django.core.cache import cache
 
-from stations.constants import in_usa
 from stations.geocoding import get_default_geocoder
+from stations.territory import in_usa
 from trips.geo import METERS_PER_MILE
 
 from .exceptions import EndpointResolutionError, OutsideUSAError, SameEndpointError

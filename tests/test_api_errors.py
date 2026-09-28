@@ -44,6 +44,28 @@ def test_outside_usa_returns_400(client):
     assert "error" in resp.json()
 
 
+@pytest.mark.parametrize(
+    ("name", "lat", "lng"),
+    [("Toronto", 43.6532, -79.3832), ("Vancouver", 49.2827, -123.1207)],
+)
+def test_foreign_coordinates_are_rejected_without_any_routing_call(client, name, lat, lng):
+    """The real containment check, unmocked.
+
+    Regression test: a lat/lng bounding box accepted these and happily planned a
+    route starting in Canada. The endpoint must now 400, and must do so before
+    any provider call is attempted.
+    """
+    with patch("routing.providers.requests.request") as http:
+        resp = client.post(
+            "/api/v1/route-fuel-plan/",
+            {"start": {"lat": lat, "lng": lng}, "finish": {"lat": 29.7604, "lng": -95.3698}},
+            format="json",
+        )
+    assert resp.status_code == 400
+    assert "outside the USA" in resp.json()["error"]
+    http.assert_not_called()
+
+
 def test_provider_failure_returns_502(client):
     with patch("trips.services.get_route", side_effect=RouteProviderError("upstream down")):
         resp = client.post("/api/v1/route-fuel-plan/", COORDS, format="json")
@@ -79,6 +101,20 @@ def test_bad_buffer_is_400_not_500_get(client, bad):
 
 def test_missing_endpoints_get_is_400(client):
     assert client.get("/api/v1/route-fuel-plan/?start=40,-90").status_code == 400
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_invalid_geometry_flag_returns_400(client, method):
+    if method == "get":
+        response = client.get(
+            "/api/v1/route-fuel-plan/?start=40,-90&finish=40,-80&include_geometry=maybe"
+        )
+    else:
+        response = client.post(
+            "/api/v1/route-fuel-plan/", {**COORDS, "include_geometry": "maybe"}, format="json"
+        )
+    assert response.status_code == 400
+    assert "include_geometry" in response.json()
 
 
 # --- Money reconciles exactly to the penny --------------------------------
