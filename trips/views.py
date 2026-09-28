@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from django.shortcuts import render
 from django.urls import reverse
+from django.views.decorators.http import require_GET
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -24,6 +25,11 @@ from .services import plan_trip
 
 # Bounds for the corridor buffer, shared by the serializer and the map view.
 BUFFER_MIN, BUFFER_MAX = 0.5, 50.0
+
+
+@require_GET
+def index(request):
+    return render(request, "trips/index.html")
 
 
 def _endpoint_to_query(ep) -> str:

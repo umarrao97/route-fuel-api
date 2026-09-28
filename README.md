@@ -1,9 +1,9 @@
 # USA Fuel-Optimal Route API
 
-A Django REST API that, given a **start** and **finish** in the USA, returns the
-driving route, the **cost-optimal fuel stops** along it, and the **total fuel
-cost** — for a vehicle with a **500-mile range** at **10 mpg**, using truck-stop
-prices from `fuel-prices-for-be-assessment.csv`.
+This Django REST API plans driving trips between two locations in the USA.
+It returns the route, **cost-optimal fuel stops**, and **total fuel cost** using
+truck-stop prices from `fuel-prices-for-be-assessment.csv`. Calculations assume
+a vehicle with a **500-mile range** and fuel economy of **10 mpg**.
 
 It makes **exactly one** call to a free routing API per request (cached
 thereafter), and returns results in **milliseconds** once warm.
@@ -21,9 +21,9 @@ python manage.py load_fuel_prices    # parses, dedups, geocodes the CSV (one-tim
 python manage.py runserver
 ```
 
-No API key and no external database are required: it defaults to the keyless
-public **OSRM** routing server and **SQLite**. To use the more robust
-**OpenRouteService**, put a free `ORS_API_KEY` in `.env`.
+The default setup uses the public **OSRM** routing server and **SQLite**, so
+you can run it without an API key or a separate database server.
+**OpenRouteService** is also supported; set `ORS_API_KEY` in `.env` to use it.
 
 ### Try it
 
@@ -37,8 +37,8 @@ curl -s -X POST localhost:8000/api/v1/route-fuel-plan/ \
 curl -s 'localhost:8000/api/v1/route-fuel-plan/?start=Chicago,%20IL&finish=Houston,%20TX'
 ```
 
-The response's `route.map_url` opens an interactive **Leaflet map** of the route
-with the fuel stops plotted.
+Open `route.map_url` from the response to view the route and selected fuel stops
+on an interactive **Leaflet map**.
 
 ### Run the tests
 
@@ -50,9 +50,10 @@ pytest
 
 ## How it works
 
-The CSV has **no coordinates** — only `City, State` and a free-text highway
-`Address` — and the routing API must not be called repeatedly. The design
-resolves this by doing all geocoding **offline, once, at load time**:
+The supplied fuel CSV lists cities, states, and highway addresses, but contains
+**no coordinates**. Station coordinates are resolved from the bundled city
+dataset **offline, once during import**, avoiding repeated geocoding calls
+when planning routes:
 
 1. **Load (`load_fuel_prices`)** — parse the CSV (handling CRLF + quoted commas),
    drop the ~620 Canadian-province rows, dedup the ~6,700 stations by OPIS ID

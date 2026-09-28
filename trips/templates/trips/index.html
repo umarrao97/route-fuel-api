@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RouteFuel — Fuel-Optimal Route Planner</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f7fa; height: 100vh; display: flex; flex-direction: column; }
+
+    header { background: #1565c0; color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 18px; font-weight: 600; }
+    header span { font-size: 13px; opacity: 0.8; }
+
+    .container { display: flex; flex: 1; overflow: hidden; }
+
+    .sidebar { width: 360px; background: #fff; border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; overflow-y: auto; }
+    .sidebar .form-section { padding: 20px; border-bottom: 1px solid #f0f0f0; }
+    .sidebar h2 { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; font-weight: 500; }
+    input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; margin-bottom: 12px; transition: border-color 0.2s; }
+    input[type="text"]:focus { outline: none; border-color: #1565c0; box-shadow: 0 0 0 2px rgba(21,101,192,0.1); }
+
+    .btn { width: 100%; padding: 12px; background: #1565c0; color: #fff; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .btn:hover { background: #0d47a1; }
+    .btn:disabled { background: #90caf9; cursor: not-allowed; }
+
+    .results { padding: 20px; flex: 1; }
+    .summary-card { background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .summary-card .total { font-size: 28px; font-weight: 700; color: #b00020; }
+    .summary-card .meta { font-size: 13px; color: #666; margin-top: 6px; }
+    .summary-card .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .summary-card .stat { font-size: 13px; }
+    .summary-card .stat b { display: block; font-size: 16px; color: #333; }
+
+    .stop-list { list-style: none; }
+    .stop-item { padding: 10px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; display: flex; gap: 10px; align-items: flex-start; }
+    .stop-num { background: #1565c0; color: #fff; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+    .stop-details { flex: 1; }
+    .stop-name { font-weight: 600; color: #333; }
+    .stop-meta { color: #666; margin-top: 2px; }
+    .stop-cost { font-weight: 600; color: #b00020; white-space: nowrap; }
+
+    .error-msg { background: #fff3f3; border: 1px solid #ffcdd2; color: #b00020; padding: 12px; border-radius: 6px; font-size: 13px; }
+    .hint { font-size: 12px; color: #888; margin-top: 8px; }
+
+    #map { flex: 1; }
+    .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 15px; }
+
+    .loading { display: flex; align-items: center; gap: 8px; justify-content: center; padding: 40px; color: #666; font-size: 14px; }
+    .spinner { width: 20px; height: 20px; border: 2px solid #ddd; border-top-color: #1565c0; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 768px) {
+      .container { flex-direction: column; }
+      .sidebar { width: 100%; max-height: 45vh; }
+      #map { min-height: 300px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>RouteFuel</h1>
+    <span>Fuel-Optimal Route Planner</span>
+  </header>
+
+  <div class="container">
+    <aside class="sidebar">
+      <div class="form-section">
+        <h2>Plan Your Route</h2>
+        <form id="route-form">
+          <label for="start">Start Location</label>
+          <input type="text" id="start" name="start" placeholder="e.g. Houston, TX or 29.76,-95.36" required />
+
+          <label for="finish">Destination</label>
+          <input type="text" id="finish" name="finish" placeholder="e.g. Los Angeles, CA" required />
+
+          <button type="submit" class="btn" id="submit-btn">Find Optimal Route</button>
+        </form>
+        <p class="hint">Enter US cities as "City, ST" or lat,lng coordinates.</p>
+      </div>
+
+      <div class="results" id="results">
+        <p style="color:#aaa; text-align:center; margin-top: 40px;">Enter start and destination to see fuel stops.</p>
+      </div>
+    </aside>
+
+    <div id="map" class="empty-state">
+      <span>Map will appear after planning a route</span>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    let map = null;
+    let routeLayer = null;
+    let markersLayer = null;
+
+    function initMap() {
+      if (map) return;
+      document.getElementById('map').classList.remove('empty-state');
+      document.getElementById('map').innerHTML = '';
+      map = L.map('map');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      routeLayer = L.layerGroup().addTo(map);
+      markersLayer = L.layerGroup().addTo(map);
+    }
+
+    function clearMap() {
+      if (!map) return;
+      routeLayer.clearLayers();
+      markersLayer.clearLayers();
+    }
+
+    function renderResults(data) {
+      const results = document.getElementById('results');
+      const stops = data.fuel_stops;
+      const fuel = data.fuel;
+      const route = data.route;
+
+      let html = `
+        <div class="summary-card">
+          <div class="total">$${fuel.total_cost_usd}</div>
+          <div class="meta">Total fuel cost at ${fuel.mpg} mpg</div>
+          <div class="stats">
+            <div class="stat"><b>${route.total_distance_miles} mi</b>Distance</div>
+            <div class="stat"><b>${Math.round(route.duration_minutes)} min</b>Duration</div>
+            <div class="stat"><b>${fuel.total_gallons} gal</b>Fuel needed</div>
+            <div class="stat"><b>${stops.length}</b>Fuel stops</div>
+          </div>
+        </div>
+        <h2 style="font-size:13px;font-weight:600;margin-bottom:10px;color:#333;">FUEL STOPS</h2>
+        <ul class="stop-list">
+      `;
+
+      stops.forEach(s => {
+        html += `
+          <li class="stop-item">
+            <div class="stop-num">${s.order}</div>
+            <div class="stop-details">
+              <div class="stop-name">${s.name}</div>
+              <div class="stop-meta">${s.city}, ${s.state} &middot; Mile ${s.route_mile_marker} &middot; $${s.price_per_gallon}/gal &middot; ${s.gallons_purchased} gal</div>
+            </div>
+            <div class="stop-cost">$${s.cost_usd}</div>
+          </li>
+        `;
+      });
+
+      html += '</ul>';
+      results.innerHTML = html;
+
+      // Render map
+      initMap();
+      clearMap();
+
+      const latlngs = route.geometry.coordinates.map(c => [c[1], c[0]]);
+      const line = L.polyline(latlngs, { color: '#1565c0', weight: 4 });
+      routeLayer.addLayer(line);
+
+      // Start/end markers
+      const startIcon = L.divIcon({ className: '', html: '<div style="background:#4caf50;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>' });
+      const endIcon = L.divIcon({ className: '', html: '<div style="background:#f44336;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>' });
+      markersLayer.addLayer(L.marker([route.start.lat, route.start.lng], { icon: startIcon }).bindPopup('Start'));
+      markersLayer.addLayer(L.marker([route.finish.lat, route.finish.lng], { icon: endIcon }).bindPopup('Destination'));
+
+      // Fuel stop markers
+      stops.forEach(s => {
+        const marker = L.marker([s.location.lat, s.location.lng]).bindPopup(
+          `<b>#${s.order} ${s.name}</b><br>${s.city}, ${s.state}` +
+          `<br>Mile ${s.route_mile_marker} &middot; $${s.price_per_gallon}/gal` +
+          `<br>${s.gallons_purchased} gal &middot; <b>$${s.cost_usd}</b>`
+        );
+        markersLayer.addLayer(marker);
+      });
+
+      map.fitBounds(line.getBounds(), { padding: [40, 40] });
+    }
+
+    function renderError(err) {
+      const results = document.getElementById('results');
+      let html = `<div class="error-msg">${err.error || 'Something went wrong.'}`;
+      if (err.hint) html += `<br><small>${err.hint}</small>`;
+      html += '</div>';
+      results.innerHTML = html;
+    }
+
+    function parseEndpoint(val) {
+      const parts = val.split(',').map(s => s.trim());
+      if (parts.length === 2) {
+        const lat = parseFloat(parts[0]);
+        const lng = parseFloat(parts[1]);
+        if (!isNaN(lat) && !isNaN(lng) && Math.abs(lat) <= 90) {
+          return { lat, lng };
+        }
+      }
+      return val.trim();
+    }
+
+    document.getElementById('route-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      const results = document.getElementById('results');
+
+      const start = document.getElementById('start').value;
+      const finish = document.getElementById('finish').value;
+      if (!start || !finish) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Planning...';
+      results.innerHTML = '<div class="loading"><div class="spinner"></div>Finding optimal route...</div>';
+
+      try {
+        const resp = await fetch('/api/v1/route-fuel-plan/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start: parseEndpoint(start), finish: parseEndpoint(finish) })
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          renderResults(data);
+        } else {
+          renderError(data);
+        }
+      } catch (err) {
+        renderError({ error: 'Network error. Please try again.' });
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Find Optimal Route';
+      }
+    });
+  </script>
+</body>
+</html>
