@@ -1,4 +1,7 @@
 [tool.ruff]
+# The MINIMUM Python this project supports. Django 6.1 supports 3.12-3.14;
+# keeping the floor at 3.12 also stops the formatter rewriting exception
+# groups into PEP 758 (3.14-only) syntax.
 target-version = "py312"
 line-length = 100
 extend-exclude = ["migrations"]

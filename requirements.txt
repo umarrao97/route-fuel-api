@@ -1,12 +1,15 @@
-Django==5.2.*
-djangorestframework==3.16.*
-requests==2.32.*
-numpy==2.1.*
-scipy==1.14.*
-django-environ==0.11.*
+# Exact pins, generated from the environment this project is tested against
+# (Python 3.14). Django 6.1 is the latest stable release; it supports Python
+# 3.12-3.14 and requires SQLite >= 3.37.
+Django==6.1.1
+djangorestframework==3.18.1
+requests==2.34.2
+numpy==2.5.3
+scipy==1.18.1
+django-environ==0.14.0
 
 # Dev / test
-pytest==8.*
-pytest-django==4.*
-responses==0.25.*
-ruff==0.6.*
+pytest==9.1.1
+pytest-django==4.14.0
+responses==0.26.3
+ruff==0.16.9
